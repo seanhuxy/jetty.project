@@ -15,13 +15,4 @@
     <url-pattern>/zed</url-pattern>
   </servlet-mapping>
 
-  <servlet>
-    <servlet-name>precompiledName</servlet-name>
-    <servlet-class>org.eclipse.jetty.webapp.jsp.FakePrecompiledJSP</servlet-class>
-  </servlet>
-  <servlet-mapping>
-    <servlet-name>precompiledName</servlet-name>
-    <url-pattern>/precompiled/world.jsp</url-pattern>
-  </servlet-mapping>
-
 </web-app>

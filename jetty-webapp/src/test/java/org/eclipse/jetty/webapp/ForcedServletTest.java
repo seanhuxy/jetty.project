@@ -50,16 +50,8 @@ public class ForcedServletTest
         server.addConnector(connector);
 
         WebAppContext context = new ForcedWebAppContext();
-        Path altWebDefault = MavenTestingUtils.getTestResourcePathFile("alt-jsp-webdefault.xml");
-        context.setDefaultsDescriptor(altWebDefault.toAbsolutePath().toString());
         Path altWebApp = MavenTestingUtils.getProjectDirPath("src/test/webapp-alt-jsp");
         context.setWarResource(new PathResource(altWebApp));
-
-        context.getSystemClasspathPattern().add("org.eclipse.jetty.webapp.jsp.");
-        context.getServerClasspathPattern().add("-org.eclipse.jetty.webapp.jsp.");
-
-        Path testClasses = MavenTestingUtils.getTargetPath("test-classes");
-        // context.setExtraClasspath(testClasses.toAbsolutePath().toString());
 
         server.setHandler(context);
         server.setDumpAfterStart(true);
@@ -153,6 +145,19 @@ public class ForcedServletTest
         {
             System.err.printf("### Thread.cl = %s%n", Thread.currentThread().getContextClassLoader());
             forceServlet("jsp", RejectUncompiledJspServlet.class);
+
+            // TODO this is the alternative fix in GAE only
+//            for (ServletHolder h : getServletHandler().getServlets())
+//            {
+//                System.err.println(h);
+//                if (h.getForcedPath() != null)
+//                {
+//                    System.err.println("FORCED " + h.getForcedPath());
+//                    h.setHeldClass(RejectUncompiledJspServlet.class);
+//                    h.setForcedPath(null);
+//                    System.err.println(h);
+//                }
+//            }
             super.startWebapp();
         }
 
