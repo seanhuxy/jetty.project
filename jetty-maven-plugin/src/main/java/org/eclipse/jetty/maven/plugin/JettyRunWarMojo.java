@@ -201,7 +201,7 @@ public class JettyRunWarMojo extends AbstractWebAppMojo
                     }
                     catch (Exception e)
                     {
-                        getLog().error("Error reconfiguring/restarting webapp after change in watched files",e);
+                        getLog().error("Error reconfiguring/restarting webapp after change in watched files", e);
                     }
                 }
             });
@@ -263,7 +263,11 @@ public class JettyRunWarMojo extends AbstractWebAppMojo
                 break;
             }
             case HOME:
+            case DISTRO:
+            case EXTERNAL:
             {
+                if (deployMode != DeploymentMode.EXTERNAL)
+                    getLog().warn(deployMode + " mode is deprecated, use mode EXTERNAL");
                 verifyPomConfiguration();
                 if (reconfigure)
                 {

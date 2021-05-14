@@ -46,11 +46,13 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.output.Slf4jLogConsumer;
 import org.testcontainers.containers.wait.strategy.LogMessageWaitStrategy;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@Testcontainers(disabledWithoutDocker = true)
 public class RemoteQueryManagerTest
 {
     public static final String DEFAULT_CACHE_NAME = "remote-session-test";
@@ -70,14 +72,14 @@ public class RemoteQueryManagerTest
     
     GenericContainer infinispan =
         new GenericContainer(System.getProperty("infinispan.docker.image.name", "jboss/infinispan-server") +
-                                 ":" + System.getProperty("infinispan.docker.image.version", "9.4.8.Final"))
-            .withEnv("APP_USER","theuser")
-            .withEnv("APP_PASS","foobar")
+            ":" + System.getProperty("infinispan.docker.image.version", "9.4.8.Final"))
+            .withEnv("APP_USER", "theuser")
+            .withEnv("APP_PASS", "foobar")
             .withEnv("MGMT_USER", "admin")
             .withEnv("MGMT_PASS", "admin")
             .waitingFor(new LogMessageWaitStrategy()
-                            .withRegEx(".*Infinispan Server.*started in.*\\s"))
-            .withExposedPorts(4712,4713,8088,8089,8443,9990,9993,11211,11222,11223,11224)
+                .withRegEx(".*Infinispan Server.*started in.*\\s"))
+            .withExposedPorts(4712, 4713, 8088, 8089, 8443, 9990, 9993, 11211, 11222, 11223, 11224)
             .withLogConsumer(new Slf4jLogConsumer(INFINISPAN_LOG));
 
     @BeforeEach

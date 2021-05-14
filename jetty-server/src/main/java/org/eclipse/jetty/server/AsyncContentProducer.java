@@ -13,21 +13,33 @@
 
 package org.eclipse.jetty.server;
 
+import java.io.IOException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Condition;
 
 import org.eclipse.jetty.http.BadMessageException;
 import org.eclipse.jetty.http.HttpStatus;
+import org.eclipse.jetty.util.thread.AutoLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Non-blocking {@link ContentProducer} implementation. Calling {@link #nextContent()} will never block
+ * Non-blocking {@link ContentProducer} implementation. Calling {@link ContentProducer#nextContent()} will never block
  * but will return null when there is no available content.
  */
 class AsyncContentProducer implements ContentProducer
 {
     private static final Logger LOG = LoggerFactory.getLogger(AsyncContentProducer.class);
+    private static final Throwable UNCONSUMED_CONTENT_EXCEPTION = new IOException("Unconsumed content")
+    {
+        @Override
+        public synchronized Throwable fillInStackTrace()
+        {
+            return this;
+        }
+    };
 
+    private final AutoLock _lock = new AutoLock();
     private final HttpChannel _httpChannel;
     private HttpInput.Interceptor _interceptor;
     private HttpInput.Content _rawContent;
@@ -42,8 +54,15 @@ class AsyncContentProducer implements ContentProducer
     }
 
     @Override
+    public AutoLock lock()
+    {
+        return _lock.lock();
+    }
+
+    @Override
     public void recycle()
     {
+        assertLocked();
         if (LOG.isDebugEnabled())
             LOG.debug("recycling {}", this);
         _interceptor = null;
@@ -57,18 +76,21 @@ class AsyncContentProducer implements ContentProducer
     @Override
     public HttpInput.Interceptor getInterceptor()
     {
+        assertLocked();
         return _interceptor;
     }
 
     @Override
     public void setInterceptor(HttpInput.Interceptor interceptor)
     {
+        assertLocked();
         this._interceptor = interceptor;
     }
 
     @Override
     public int available()
     {
+        assertLocked();
         HttpInput.Content content = nextTransformedContent();
         int available = content == null ? 0 : content.remaining();
         if (LOG.isDebugEnabled())
@@ -79,6 +101,7 @@ class AsyncContentProducer implements ContentProducer
     @Override
     public boolean hasContent()
     {
+        assertLocked();
         boolean hasContent = _rawContent != null;
         if (LOG.isDebugEnabled())
             LOG.debug("hasContent = {} {}", hasContent, this);
@@ -88,6 +111,7 @@ class AsyncContentProducer implements ContentProducer
     @Override
     public boolean isError()
     {
+        assertLocked();
         if (LOG.isDebugEnabled())
             LOG.debug("isError = {} {}", _error, this);
         return _error;
@@ -96,6 +120,7 @@ class AsyncContentProducer implements ContentProducer
     @Override
     public void checkMinDataRate()
     {
+        assertLocked();
         long minRequestDataRate = _httpChannel.getHttpConfiguration().getMinRequestDataRate();
         if (LOG.isDebugEnabled())
             LOG.debug("checkMinDataRate [m={},t={}] {}", minRequestDataRate, _firstByteTimeStamp, this);
@@ -127,16 +152,22 @@ class AsyncContentProducer implements ContentProducer
     @Override
     public long getRawContentArrived()
     {
+        assertLocked();
         if (LOG.isDebugEnabled())
             LOG.debug("getRawContentArrived = {} {}", _rawContentArrived, this);
         return _rawContentArrived;
     }
 
     @Override
-    public boolean consumeAll(Throwable x)
+    public boolean consumeAll()
     {
+        assertLocked();
+        Throwable x = UNCONSUMED_CONTENT_EXCEPTION;
         if (LOG.isDebugEnabled())
-            LOG.debug("consumeAll [e={}] {}", x, this);
+        {
+            x = new IOException("Unconsumed content");
+            LOG.debug("consumeAll {}", this, x);
+        }
         failCurrentContent(x);
         // A specific HttpChannel mechanism must be used as the following code
         // does not guarantee that the channel will synchronously deliver all
@@ -177,11 +208,16 @@ class AsyncContentProducer implements ContentProducer
             _rawContent.failed(x);
             _rawContent = null;
         }
+
+        HttpInput.ErrorContent errorContent = new HttpInput.ErrorContent(x);
+        _transformedContent = errorContent;
+        _rawContent = errorContent;
     }
 
     @Override
     public boolean onContentProducible()
     {
+        assertLocked();
         if (LOG.isDebugEnabled())
             LOG.debug("onContentProducible {}", this);
         return _httpChannel.getState().onReadReady();
@@ -190,6 +226,7 @@ class AsyncContentProducer implements ContentProducer
     @Override
     public HttpInput.Content nextContent()
     {
+        assertLocked();
         HttpInput.Content content = nextTransformedContent();
         if (LOG.isDebugEnabled())
             LOG.debug("nextContent = {} {}", content, this);
@@ -201,6 +238,7 @@ class AsyncContentProducer implements ContentProducer
     @Override
     public void reclaim(HttpInput.Content content)
     {
+        assertLocked();
         if (LOG.isDebugEnabled())
             LOG.debug("reclaim {} {}", content, this);
         if (_transformedContent == content)
@@ -215,6 +253,7 @@ class AsyncContentProducer implements ContentProducer
     @Override
     public boolean isReady()
     {
+        assertLocked();
         HttpInput.Content content = nextTransformedContent();
         if (content != null)
         {
@@ -274,7 +313,18 @@ class AsyncContentProducer implements ContentProducer
             {
                 // TODO does EOF need to be passed to the interceptors?
 
-                _error = _rawContent.getError() != null;
+                // In case the _rawContent was set by consumeAll(), check the httpChannel
+                // to see if it has a more precise error. Otherwise, the exact same
+                // special content will be returned by the httpChannel; do not do that
+                // if the _error flag was set, meaning the current error is definitive.
+                if (!_error)
+                {
+                    HttpInput.Content refreshedRawContent = produceRawContent();
+                    if (refreshedRawContent != null)
+                        _rawContent = refreshedRawContent;
+                    _error = _rawContent.getError() != null;
+                }
+
                 if (LOG.isDebugEnabled())
                     LOG.debug("raw content is special (with error = {}), returning it {}", _error, this);
                 return _rawContent;
@@ -284,7 +334,9 @@ class AsyncContentProducer implements ContentProducer
             {
                 if (LOG.isDebugEnabled())
                     LOG.debug("using interceptor to transform raw content {}", this);
-                _transformedContent = _interceptor.readFrom(_rawContent);
+                _transformedContent = intercept();
+                if (_error)
+                    return _rawContent;
             }
             else
             {
@@ -336,6 +388,26 @@ class AsyncContentProducer implements ContentProducer
         return _transformedContent;
     }
 
+    private HttpInput.Content intercept()
+    {
+        try
+        {
+            return _interceptor.readFrom(_rawContent);
+        }
+        catch (Throwable x)
+        {
+            IOException failure = new IOException("Bad content", x);
+            failCurrentContent(failure);
+            // Set the _error flag to mark the error as definitive, i.e.:
+            // do not try to produce new raw content to get a fresher error.
+            _error = true;
+            Response response = _httpChannel.getResponse();
+            if (response.isCommitted())
+                _httpChannel.abort(failure);
+            return null;
+        }
+    }
+
     private HttpInput.Content produceRawContent()
     {
         HttpInput.Content content = _httpChannel.produceContent();
@@ -352,6 +424,12 @@ class AsyncContentProducer implements ContentProducer
         return content;
     }
 
+    private void assertLocked()
+    {
+        if (!_lock.isHeldByCurrentThread())
+            throw new IllegalStateException("ContentProducer must be called within lock scope");
+    }
+
     @Override
     public String toString()
     {
@@ -364,5 +442,54 @@ class AsyncContentProducer implements ContentProducer
             _error,
             _httpChannel
         );
+    }
+
+    LockedSemaphore newLockedSemaphore()
+    {
+        return new LockedSemaphore();
+    }
+
+    /**
+     * A semaphore that assumes working under {@link AsyncContentProducer#lock()} scope.
+     */
+    class LockedSemaphore
+    {
+        private final Condition _condition;
+        private int _permits;
+
+        private LockedSemaphore()
+        {
+            this._condition = _lock.newCondition();
+        }
+
+        void assertLocked()
+        {
+            if (!_lock.isHeldByCurrentThread())
+                throw new IllegalStateException("LockedSemaphore must be called within lock scope");
+        }
+
+        void drainPermits()
+        {
+            _permits = 0;
+        }
+
+        void acquire() throws InterruptedException
+        {
+            while (_permits == 0)
+                _condition.await();
+            _permits--;
+        }
+
+        void release()
+        {
+            _permits++;
+            _condition.signal();
+        }
+
+        @Override
+        public String toString()
+        {
+            return getClass().getSimpleName() + " permits=" + _permits;
+        }
     }
 }

@@ -17,9 +17,7 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.nio.channels.WritePendingException;
 import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Queue;
+import java.util.Deque;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
@@ -55,7 +53,7 @@ public class HTTP2Stream extends IdleTimeout implements IStream, Callback, Dumpa
     private static final Logger LOG = LoggerFactory.getLogger(HTTP2Stream.class);
 
     private final AutoLock lock = new AutoLock();
-    private final Queue<DataEntry> dataQueue = new ArrayDeque<>();
+    private Deque<DataEntry> dataQueue;
     private final AtomicReference<Object> attachment = new AtomicReference<>();
     private final AtomicReference<ConcurrentMap<String, Object>> attributes = new AtomicReference<>();
     private final AtomicReference<CloseState> closeState = new AtomicReference<>(CloseState.NOT_CLOSED);
@@ -75,6 +73,7 @@ public class HTTP2Stream extends IdleTimeout implements IStream, Callback, Dumpa
     private long dataDemand;
     private boolean dataInitial;
     private boolean dataProcess;
+    private boolean committed;
 
     public HTTP2Stream(Scheduler scheduler, ISession session, int streamId, MetaData.Request request, boolean local)
     {
@@ -234,15 +233,19 @@ public class HTTP2Stream extends IdleTimeout implements IStream, Callback, Dumpa
     @Override
     public boolean failAllData(Throwable x)
     {
-        List<DataEntry> copy;
+        Deque<DataEntry> copy;
         try (AutoLock l = lock.lock())
         {
             dataDemand = 0;
-            copy = new ArrayList<>(dataQueue);
-            dataQueue.clear();
+            copy = dataQueue;
+            dataQueue = null;
         }
-        copy.forEach(dataEntry -> dataEntry.callback.failed(x));
-        DataEntry lastDataEntry = copy.isEmpty() ? null : copy.get(copy.size() - 1);
+        DataEntry lastDataEntry = null;
+        if (copy != null)
+        {
+            copy.forEach(dataEntry -> dataEntry.callback.failed(x));
+            lastDataEntry = copy.isEmpty() ? null : copy.peekLast();
+        }
         if (lastDataEntry == null)
             return isRemotelyClosed();
         return lastDataEntry.frame.isEndStream();
@@ -251,6 +254,18 @@ public class HTTP2Stream extends IdleTimeout implements IStream, Callback, Dumpa
     public boolean isLocallyClosed()
     {
         return closeState.get() == CloseState.LOCALLY_CLOSED;
+    }
+
+    @Override
+    public void commit()
+    {
+        committed = true;
+    }
+
+    @Override
+    public boolean isCommitted()
+    {
+        return committed;
     }
 
     @Override
@@ -400,6 +415,8 @@ public class HTTP2Stream extends IdleTimeout implements IStream, Callback, Dumpa
         DataEntry entry = new DataEntry(frame, callback);
         try (AutoLock l = lock.lock())
         {
+            if (dataQueue == null)
+                dataQueue = new ArrayDeque<>();
             dataQueue.offer(entry);
             initial = dataInitial;
             if (initial)
@@ -441,7 +458,7 @@ public class HTTP2Stream extends IdleTimeout implements IStream, Callback, Dumpa
         {
             demand = dataDemand = MathUtils.cappedAdd(dataDemand, n);
             if (!dataProcess)
-                dataProcess = proceed = !dataQueue.isEmpty();
+                dataProcess = proceed = dataQueue != null && !dataQueue.isEmpty();
         }
         if (LOG.isDebugEnabled())
             LOG.debug("Demand {}/{}, {} data processing for {}", n, demand, proceed ? "proceeding" : "stalling", this);
@@ -456,7 +473,7 @@ public class HTTP2Stream extends IdleTimeout implements IStream, Callback, Dumpa
             DataEntry dataEntry;
             try (AutoLock l = lock.lock())
             {
-                if (dataQueue.isEmpty() || dataDemand == 0)
+                if (dataQueue == null || dataQueue.isEmpty() || dataDemand == 0)
                 {
                     if (LOG.isDebugEnabled())
                         LOG.debug("Stalling data processing for {}", this);

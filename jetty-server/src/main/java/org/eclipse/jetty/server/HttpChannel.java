@@ -404,7 +404,7 @@ public abstract class HttpChannel implements Runnable, HttpOutput.Interceptor
 
                     case ASYNC_DISPATCH:
                     {
-                        dispatch(DispatcherType.ASYNC,() -> getServer().handleAsync(this));
+                        dispatch(DispatcherType.ASYNC, () -> getServer().handleAsync(this));
                         break;
                     }
 
@@ -443,7 +443,7 @@ public abstract class HttpChannel implements Runnable, HttpOutput.Interceptor
                                 break;
                             }
 
-                            dispatch(DispatcherType.ERROR,() ->
+                            dispatch(DispatcherType.ERROR, () ->
                             {
                                 errorHandler.handle(null, _request, _request, _response);
                                 _request.setHandled(true);
@@ -701,9 +701,20 @@ public abstract class HttpChannel implements Runnable, HttpOutput.Interceptor
         }
 
         if (isCommitted())
+        {
             abort(failure);
+        }
         else
-            _state.onError(failure);
+        {
+            try
+            {
+                _state.onError(failure);
+            }
+            catch (IllegalStateException e)
+            {
+                abort(failure);
+            }
+        }
     }
 
     /**
@@ -929,7 +940,7 @@ public abstract class HttpChannel implements Runnable, HttpOutput.Interceptor
             commit(response);
             _combinedListener.onResponseBegin(_request);
             _request.onResponseCommit();
-            
+
             // wrap callback to process 100 responses
             final int status = response.getStatus();
             final Callback committed = (status < HttpStatus.OK_200 && status >= HttpStatus.CONTINUE_100)

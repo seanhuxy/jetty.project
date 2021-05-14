@@ -3,7 +3,7 @@
   <parent>
     <artifactId>jetty-project</artifactId>
     <groupId>org.eclipse.jetty</groupId>
-    <version>10.0.1-SNAPSHOT</version>
+    <version>10.0.3-SNAPSHOT</version>
   </parent>
   <modelVersion>4.0.0</modelVersion>
   <artifactId>jetty-home</artifactId>
@@ -444,7 +444,7 @@
               <excludeArtifactIds>infinispan-embedded,infinispan-remote,jetty-test-helper,alpn-api,javax.security.auth.message,javax.activation</excludeArtifactIds>
               <classifier>config</classifier>
               <failOnMissingClassifierArtifact>false</failOnMissingClassifierArtifact>
-              <excludes>META-INF/**</excludes>
+              <excludes>META-INF/**,webapps/**,start.d/**,start.ini</excludes>
               <outputDirectory>${assembly-directory}</outputDirectory>
             </configuration>
           </execution>

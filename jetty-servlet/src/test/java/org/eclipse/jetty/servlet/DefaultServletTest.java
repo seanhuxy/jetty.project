@@ -250,11 +250,8 @@ public class DefaultServletTest
         String resBasePath = docRoot.toAbsolutePath().toString();
         defholder.setInitParameter("resourceBase", resBasePath);
 
-        StringBuffer req1 = new StringBuffer();
-        req1.append("GET /context/one/deep/ HTTP/1.0\n");
-        req1.append("\n");
-
-        String rawResponse = connector.getResponse(req1.toString());
+        String req1 = "GET /context/one/deep/ HTTP/1.0\n\n";
+        String rawResponse = connector.getResponse(req1);
         HttpTester.Response response = HttpTester.parseResponse(rawResponse);
 
         assertThat(response.getStatus(), is(HttpStatus.OK_200));
@@ -452,9 +449,16 @@ public class DefaultServletTest
             );
 
             scenarios.addScenario(
+                "GET " + prefix + "/..;/..;/sekret/pass",
+                "GET " + prefix + "/..;/..;/sekret/pass HTTP/1.0\r\n\r\n",
+                prefix.endsWith("?") ? HttpStatus.NOT_FOUND_404 : HttpStatus.BAD_REQUEST_400,
+                (response) -> assertThat(response.getContent(), not(containsString("Sssh")))
+            );
+
+            scenarios.addScenario(
                 "GET " + prefix + "/%2E%2E/%2E%2E/sekret/pass",
-                "GET " + prefix + "/ HTTP/1.0\r\n\r\n",
-                HttpStatus.NOT_FOUND_404,
+                "GET " + prefix + "/%2E%2E/%2E%2E/sekret/pass HTTP/1.0\r\n\r\n",
+                prefix.endsWith("?") ? HttpStatus.NOT_FOUND_404 : HttpStatus.BAD_REQUEST_400,
                 (response) -> assertThat(response.getContent(), not(containsString("Sssh")))
             );
 
@@ -466,12 +470,6 @@ public class DefaultServletTest
                     "GET " + prefix + "/../index.html HTTP/1.0\r\n\r\n",
                     HttpStatus.NOT_FOUND_404
                 );
-
-                scenarios.addScenario(
-                    "GET " + prefix + "/%2E%2E/index.html",
-                    "GET " + prefix + "/%2E%2E/index.html HTTP/1.0\r\n\r\n",
-                    HttpStatus.NOT_FOUND_404
-                );
             }
             else
             {
@@ -481,14 +479,13 @@ public class DefaultServletTest
                     HttpStatus.OK_200,
                     (response) -> assertThat(response.getContent(), containsString("Hello Index"))
                 );
-
-                scenarios.addScenario(
-                    "GET " + prefix + "/%2E%2E/index.html",
-                    "GET " + prefix + "/%2E%2E/index.html HTTP/1.0\r\n\r\n",
-                    HttpStatus.OK_200,
-                    (response) -> assertThat(response.getContent(), containsString("Hello Index"))
-                );
             }
+
+            scenarios.addScenario(
+                "GET " + prefix + "/%2E%2E/index.html",
+                "GET " + prefix + "/%2E%2E/index.html HTTP/1.0\r\n\r\n",
+                prefix.endsWith("?") ? HttpStatus.NOT_FOUND_404 : HttpStatus.BAD_REQUEST_400
+            );
 
             scenarios.addScenario(
                 "GET " + prefix + "/../../",
@@ -1451,11 +1448,13 @@ public class DefaultServletTest
         Path image = docRoot.resolve("image.jpg");
         createFile(image, "not an image");
 
+        server.stop();
         ServletHolder defholder = context.addServlet(DefaultServlet.class, "/");
         defholder.setInitParameter("dirAllowed", "false");
         defholder.setInitParameter("redirectWelcome", "false");
         defholder.setInitParameter("welcomeServlets", "false");
         defholder.setInitParameter("gzip", "false");
+        server.start();
 
         String rawResponse;
         HttpTester.Response response;

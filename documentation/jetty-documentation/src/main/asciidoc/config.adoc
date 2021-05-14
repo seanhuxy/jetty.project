@@ -17,11 +17,13 @@
 :revdate: {localdate}
 
 :toc: left
-:toclevels: 4
+:toclevels: 5
 
 :idseparator: -
 :sectlinks:
 :sectanchors:
+
+:source-highlighter: coderay
 
 // Use fonts for admonitions.
 :icons: font

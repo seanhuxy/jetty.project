@@ -49,6 +49,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import javax.net.ssl.CertPathTrustManagerParameters;
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.KeyManager;
@@ -58,7 +59,6 @@ import javax.net.ssl.SNIMatcher;
 import javax.net.ssl.SNIServerName;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
-import javax.net.ssl.SSLHandshakeException;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLPeerUnverifiedException;
 import javax.net.ssl.SSLServerSocket;
@@ -708,13 +708,20 @@ public abstract class SslContextFactory extends AbstractLifeCycle implements Dum
      */
     public void setTrustStorePath(String trustStorePath)
     {
-        try
+        if (StringUtil.isEmpty(trustStorePath))
         {
-            _trustStoreResource = Resource.newResource(trustStorePath);
+            _trustStoreResource = null;
         }
-        catch (Exception e)
+        else
         {
-            throw new IllegalArgumentException(e);
+            try
+            {
+                _trustStoreResource = Resource.newResource(trustStorePath);
+            }
+            catch (Exception e)
+            {
+                throw new IllegalArgumentException(e);
+            }
         }
     }
 
@@ -2001,6 +2008,14 @@ public abstract class SslContextFactory extends AbstractLifeCycle implements Dum
             return 0;
     }
 
+    public void validateCerts(X509Certificate[] certs) throws Exception
+    {
+        KeyStore trustStore = loadTrustStore(_trustStoreResource);
+        Collection<? extends CRL> crls = loadCRL(_crlPath);
+        CertificateValidator validator = new CertificateValidator(trustStore, crls);
+        validator.validate(certs);
+    }
+
     @Override
     public String toString()
     {
@@ -2140,12 +2155,17 @@ public abstract class SslContextFactory extends AbstractLifeCycle implements Dum
         }
 
         /**
-         * Does the default {@link #sniSelect(String, Principal[], SSLSession, String, Collection)} implementation
-         * require an SNI match?  Note that if a non SNI handshake is accepted, requests may still be rejected
-         * at the HTTP level for incorrect SNI (see SecureRequestCustomizer).
+         * <p>Returns whether an SNI match is required when choosing the alias that
+         * identifies the certificate to send to the client.</p>
+         * <p>The exact logic to choose an alias given the SNI is configurable via
+         * {@link #setSNISelector(SniX509ExtendedKeyManager.SniSelector)}.</p>
+         * <p>The default implementation is {@link #sniSelect(String, Principal[], SSLSession, String, Collection)}
+         * and if SNI is not required it will delegate the TLS implementation to
+         * choose an alias (typically the first alias in the KeyStore).</p>
+         * <p>Note that if a non SNI handshake is accepted, requests may still be rejected
+         * at the HTTP level for incorrect SNI (see SecureRequestCustomizer).</p>
          *
-         * @return true if no SNI match is handled as no certificate match, false if no SNI match is handled by
-         * delegation to the non SNI matching methods.
+         * @return whether an SNI match is required when choosing the alias that identifies the certificate
          */
         @ManagedAttribute("Whether the TLS handshake is rejected if there is no SNI host match")
         public boolean isSniRequired()
@@ -2154,14 +2174,12 @@ public abstract class SslContextFactory extends AbstractLifeCycle implements Dum
         }
 
         /**
-         * Set if the default {@link #sniSelect(String, Principal[], SSLSession, String, Collection)} implementation
-         * require an SNI match? Note that if a non SNI handshake is accepted, requests may still be rejected
-         * at the HTTP level for incorrect SNI (see SecureRequestCustomizer).
-         * This setting may have no effect if {@link #sniSelect(String, Principal[], SSLSession, String, Collection)} is
-         * overridden or a non null function is passed to {@link #setSNISelector(SniX509ExtendedKeyManager.SniSelector)}.
+         * <p>Sets whether an SNI match is required when choosing the alias that
+         * identifies the certificate to send to the client.</p>
+         * <p>This setting may have no effect if {@link #sniSelect(String, Principal[], SSLSession, String, Collection)} is
+         * overridden or a custom function is passed to {@link #setSNISelector(SniX509ExtendedKeyManager.SniSelector)}.</p>
          *
-         * @param sniRequired true if no SNI match is handled as no certificate match, false if no SNI match is handled by
-         * delegation to the non SNI matching methods.
+         * @param sniRequired whether an SNI match is required when choosing the alias that identifies the certificate
          */
         public void setSniRequired(boolean sniRequired)
         {
@@ -2215,7 +2233,7 @@ public abstract class SslContextFactory extends AbstractLifeCycle implements Dum
         }
 
         @Override
-        public String sniSelect(String keyType, Principal[] issuers, SSLSession session, String sniHost, Collection<X509> certificates) throws SSLHandshakeException
+        public String sniSelect(String keyType, Principal[] issuers, SSLSession session, String sniHost, Collection<X509> certificates)
         {
             if (sniHost == null)
             {
@@ -2224,12 +2242,30 @@ public abstract class SslContextFactory extends AbstractLifeCycle implements Dum
             }
             else
             {
-                // Match the SNI host, or let the JDK decide unless unmatched SNIs are rejected.
-                return certificates.stream()
+                // Match the SNI host.
+                List<X509> matching = certificates.stream()
                     .filter(x509 -> x509.matches(sniHost))
-                    .findFirst()
+                    .collect(Collectors.toList());
+
+                if (matching.isEmpty())
+                {
+                    // There is no match for this SNI among the certificates valid for
+                    // this keyType; check if there is any certificate that matches this
+                    // SNI, as we will likely be called again with a different keyType.
+                    boolean anyMatching = aliasCerts().values().stream()
+                        .anyMatch(x509 -> x509.matches(sniHost));
+                    return isSniRequired() || anyMatching ? null : SniX509ExtendedKeyManager.SniSelector.DELEGATE;
+                }
+
+                String alias = matching.get(0).getAlias();
+                if (matching.size() == 1)
+                    return alias;
+
+                // Prefer strict matches over wildcard matches.
+                return matching.stream()
+                    .min(Comparator.comparingInt(cert -> cert.getWilds().size()))
                     .map(X509::getAlias)
-                    .orElse(_sniRequired ? null : SniX509ExtendedKeyManager.SniSelector.DELEGATE);
+                    .orElse(alias);
             }
         }
 

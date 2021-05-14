@@ -31,7 +31,6 @@ import org.eclipse.jetty.http.CompressedContentFormat;
 import org.eclipse.jetty.http.HttpField;
 import org.eclipse.jetty.http.HttpFields;
 import org.eclipse.jetty.http.HttpHeader;
-import org.eclipse.jetty.http.HttpHeaderValue;
 import org.eclipse.jetty.http.HttpMethod;
 import org.eclipse.jetty.http.MimeTypes;
 import org.eclipse.jetty.http.PreEncodedHttpField;
@@ -43,6 +42,7 @@ import org.eclipse.jetty.server.handler.HandlerWrapper;
 import org.eclipse.jetty.util.AsciiLowerCaseSet;
 import org.eclipse.jetty.util.IncludeExclude;
 import org.eclipse.jetty.util.StringUtil;
+import org.eclipse.jetty.util.compression.CompressionPool;
 import org.eclipse.jetty.util.compression.DeflaterPool;
 import org.eclipse.jetty.util.compression.InflaterPool;
 import org.slf4j.Logger;
@@ -119,6 +119,7 @@ import org.slf4j.LoggerFactory;
  * If a ETag is present in the Response headers, and GzipHandler is compressing the
  * contents, it will add the {@code --gzip} suffix before the Response headers are committed
  * and sent to the User Agent.
+ * Note that the suffix used is determined by {@link CompressedContentFormat#ETAG_SEPARATOR}
  * </p>
  * <p>
  * This implementation relies on an Jetty internal {@link org.eclipse.jetty.server.HttpOutput.Interceptor}
@@ -149,13 +150,13 @@ import org.slf4j.LoggerFactory;
 public class GzipHandler extends HandlerWrapper implements GzipFactory
 {
     public static final EnumSet<HttpHeader> ETAG_HEADERS = EnumSet.of(HttpHeader.IF_MATCH, HttpHeader.IF_NONE_MATCH);
+    public static final String GZIP_HANDLER_ETAGS = "o.e.j.s.h.gzip.GzipHandler.etag";
     public static final String GZIP = "gzip";
     public static final String DEFLATE = "deflate";
     public static final int DEFAULT_MIN_GZIP_SIZE = 32;
     public static final int BREAK_EVEN_GZIP_SIZE = 23;
     private static final Logger LOG = LoggerFactory.getLogger(GzipHandler.class);
     private static final HttpField X_CE_GZIP = new PreEncodedHttpField("X-Content-Encoding", "gzip");
-    private static final HttpField TE_CHUNKED = new PreEncodedHttpField(HttpHeader.TRANSFER_ENCODING, HttpHeaderValue.CHUNKED.asString());
     private static final Pattern COMMA_GZIP = Pattern.compile(".*, *gzip");
 
     private InflaterPool _inflaterPool;
@@ -202,9 +203,30 @@ public class GzipHandler extends HandlerWrapper implements GzipFactory
     protected void doStart() throws Exception
     {
         Server server = getServer();
-        _inflaterPool = InflaterPool.ensurePool(server);
-        _deflaterPool = DeflaterPool.ensurePool(server);
+        if (_inflaterPool == null)
+        {
+            _inflaterPool = InflaterPool.ensurePool(server);
+            addBean(_inflaterPool);
+        }
+        if (_deflaterPool == null)
+        {
+            _deflaterPool = DeflaterPool.ensurePool(server);
+            addBean(_deflaterPool);
+        }
+
         super.doStart();
+    }
+
+    @Override
+    protected void doStop() throws Exception
+    {
+        super.doStop();
+
+        removeBean(_inflaterPool);
+        _inflaterPool = null;
+
+        removeBean(_deflaterPool);
+        _deflaterPool = null;
     }
 
     /**
@@ -599,23 +621,17 @@ public class GzipHandler extends HandlerWrapper implements GzipFactory
                     case IF_MATCH:
                     case IF_NONE_MATCH:
                     {
-                        String etag = field.getValue();
-                        int i = etag.indexOf(CompressedContentFormat.GZIP._etagQuote);
-                        if (i <= 0 || alreadyGzipped)
+                        String etags = field.getValue();
+                        String etagsNoSuffix = CompressedContentFormat.GZIP.stripSuffixes(etags);
+                        if (etagsNoSuffix.equals(etags))
                             newFields.add(field);
                         else
                         {
-                            baseRequest.setAttribute("o.e.j.s.h.gzip.GzipHandler.etag", etag);
-                            while (i >= 0)
-                            {
-                                etag = etag.substring(0, i) + etag.substring(i + CompressedContentFormat.GZIP._etag.length());
-                                i = etag.indexOf(CompressedContentFormat.GZIP._etagQuote, i);
-                            }
-                            newFields.add(new HttpField(field.getHeader(), etag));
+                            newFields.add(new HttpField(field.getHeader(), etagsNoSuffix));
+                            baseRequest.setAttribute(GZIP_HANDLER_ETAGS, etags);
                         }
                         break;
                     }
-
                     case CONTENT_LENGTH:
                         newFields.add(inflated ? new HttpField("X-Content-Length", field.getValue()) : field);
                         break;
@@ -878,45 +894,97 @@ public class GzipHandler extends HandlerWrapper implements GzipFactory
     }
 
     /**
+     * Get the DeflaterPool being used. The default value of this is null before starting, but after starting if it is null
+     * it will be set to the default DeflaterPool which is stored as a bean on the server.
+     * @return the DeflaterPool being used.
+     */
+    public DeflaterPool getDeflaterPool()
+    {
+        return _deflaterPool;
+    }
+
+    /**
+     * Get the InflaterPool being used. The default value of this is null before starting, but after starting if it is null
+     * it will be set to the default InflaterPool which is stored as a bean on the server.
+     * @return the DeflaterPool being used.
+     */
+    public InflaterPool getInflaterPool()
+    {
+        return _inflaterPool;
+    }
+
+    /**
+     * Set the DeflaterPool to be used. This should be called before starting.
+     * If this value is null when starting the default pool will be used from the server.
+     * @param deflaterPool the DeflaterPool to use.
+     */
+    public void setDeflaterPool(DeflaterPool deflaterPool)
+    {
+        if (isStarted())
+            throw new IllegalStateException(getState());
+
+        updateBean(_deflaterPool, deflaterPool);
+        _deflaterPool = deflaterPool;
+    }
+
+    /**
+     * Set the InflaterPool to be used. This should be called before starting.
+     * If this value is null when starting the default pool will be used from the server.
+     * @param inflaterPool the InflaterPool to use.
+     */
+    public void setInflaterPool(InflaterPool inflaterPool)
+    {
+        if (isStarted())
+            throw new IllegalStateException(getState());
+
+        updateBean(_inflaterPool, inflaterPool);
+        _inflaterPool = inflaterPool;
+    }
+
+    /**
      * Gets the maximum number of Deflaters that the DeflaterPool can hold.
      *
      * @return the Deflater pool capacity
+     * @deprecated for custom DeflaterPool settings use {@link #setDeflaterPool(DeflaterPool)}.
      */
+    @Deprecated
     public int getDeflaterPoolCapacity()
     {
-        return _deflaterPool.getCapacity();
+        return (_deflaterPool == null) ? CompressionPool.DEFAULT_CAPACITY : _deflaterPool.getCapacity();
     }
 
     /**
      * Sets the maximum number of Deflaters that the DeflaterPool can hold.
+     * @deprecated for custom DeflaterPool settings use {@link #setDeflaterPool(DeflaterPool)}.
      */
+    @Deprecated
     public void setDeflaterPoolCapacity(int capacity)
     {
-        if (isStarted())
-            throw new IllegalStateException(getState());
-
-        _deflaterPool.setCapacity(capacity);
+        if (_deflaterPool != null)
+            _deflaterPool.setCapacity(capacity);
     }
 
     /**
-     * Gets the maximum number of Inflators that the DeflaterPool can hold.
+     * Gets the maximum number of Inflaters that the InflaterPool can hold.
      *
-     * @return the Deflater pool capacity
+     * @return the Inflater pool capacity
+     * @deprecated for custom InflaterPool settings use {@link #setInflaterPool(InflaterPool)}.
      */
+    @Deprecated
     public int getInflaterPoolCapacity()
     {
-        return _inflaterPool.getCapacity();
+        return (_inflaterPool == null) ? CompressionPool.DEFAULT_CAPACITY : _inflaterPool.getCapacity();
     }
 
     /**
-     * Sets the maximum number of Inflators that the DeflaterPool can hold.
+     * Sets the maximum number of Inflaters that the InflaterPool can hold.
+     * @deprecated for custom InflaterPool settings use {@link #setInflaterPool(InflaterPool)}.
      */
+    @Deprecated
     public void setInflaterPoolCapacity(int capacity)
     {
-        if (isStarted())
-            throw new IllegalStateException(getState());
-
-        _inflaterPool.setCapacity(capacity);
+        if (_inflaterPool != null)
+            _inflaterPool.setCapacity(capacity);
     }
 
     @Override
