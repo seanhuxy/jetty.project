@@ -16,7 +16,6 @@ package org.eclipse.jetty.osgi.test;
 import java.util.ArrayList;
 import java.util.List;
 import javax.inject.Inject;
-
 import org.eclipse.jetty.client.HttpClient;
 import org.eclipse.jetty.client.api.ContentResponse;
 import org.eclipse.jetty.http.HttpStatus;
@@ -50,6 +49,7 @@ public class TestJettyOSGiBootWithJsp
         ArrayList<Option> options = new ArrayList<>();
 
         options.addAll(TestOSGiUtil.configurePaxExamLogging());
+        options.add(TestOSGiUtil.optionalRemoteDebug());
 
         options.add(CoreOptions.junitBundles());
         options.addAll(TestOSGiUtil.configureJettyHomeAndPort(false, "jetty-http-boot-with-jsp.xml"));

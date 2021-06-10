@@ -31,7 +31,6 @@ import java.util.Enumeration;
 import java.util.Locale;
 import java.util.Timer;
 import java.util.TimerTask;
-
 import jakarta.servlet.AsyncContext;
 import jakarta.servlet.AsyncEvent;
 import jakarta.servlet.AsyncListener;
@@ -51,8 +50,6 @@ import jakarta.servlet.http.HttpServletRequestWrapper;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpServletResponseWrapper;
 import jakarta.servlet.http.Part;
-import org.slf4j.LoggerFactory;
-
 
 /**
  * Dump Servlet Request.
@@ -117,7 +114,7 @@ public class Dump extends HttpServlet
             }
             catch (ServletException e)
             {
-                getServletContext().log(e.toString());
+                getServletContext().log("Login fail", e);
             }
         }
 
@@ -342,12 +339,12 @@ public class Dump extends HttpServlet
                 }
                 catch (IOException e2)
                 {
-                    LoggerFactory.getLogger(Dump.class).trace("IGNORED", e2);
+                    getServletContext().log("Write fail", e2);
                 }
             }
             catch (IOException e)
             {
-                LoggerFactory.getLogger(Dump.class).trace("IGNORED", e);
+                getServletContext().log("Output fail", e);
             }
             return;
         }

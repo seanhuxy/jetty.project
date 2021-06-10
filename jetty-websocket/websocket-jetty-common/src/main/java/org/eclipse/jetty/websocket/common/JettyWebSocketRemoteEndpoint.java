@@ -18,7 +18,6 @@ import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
-
 import org.eclipse.jetty.util.BufferUtil;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.FutureCallback;
@@ -156,6 +155,7 @@ public class JettyWebSocketRemoteEndpoint implements org.eclipse.jetty.websocket
         b.block(getBlockingTimeout(), TimeUnit.MILLISECONDS);
     }
 
+    // FIXME: Remove the throws IOException from API for this method in the next major release.
     @Override
     public void sendPartialString(String fragment, boolean isLast, WriteCallback callback)
     {
