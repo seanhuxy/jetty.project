@@ -159,6 +159,7 @@
     <module>documentation</module>
     <module>jetty-keystore</module>
     <module>jetty-unixdomain-server</module>
+    <module>jetty-javax-transformation</module>
   </modules>
 
   <build>
