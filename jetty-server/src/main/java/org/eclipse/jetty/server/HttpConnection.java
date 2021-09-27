@@ -279,6 +279,7 @@ public class HttpConnection extends AbstractConnection implements Runnable, Http
                 // Handle channel event
                 if (handle)
                 {
+                    // TODO: xueyangh: pass to HttpChannel to handle the request
                     boolean suspended = !_channel.handle();
 
                     // We should break iteration if we have suspended or upgraded the connection.

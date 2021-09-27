@@ -391,9 +391,11 @@ public class ServerConnector extends AbstractNetworkConnector
     @Override
     public void accept(int acceptorID) throws IOException
     {
+        // TODO: xueyangh how _acceptChannel is initialized?
         ServerSocketChannel serverChannel = _acceptChannel;
         if (serverChannel != null && serverChannel.isOpen())
         {
+            // TODO: xueyangh: 通过阻塞的方式来接受新的连接
             SocketChannel channel = serverChannel.accept();
             accepted(channel);
         }
@@ -404,6 +406,8 @@ public class ServerConnector extends AbstractNetworkConnector
         channel.configureBlocking(false);
         Socket socket = channel.socket();
         configure(socket);
+        // TODO: xueyangh how _manager is initialized
+        // TODO: xueyangh: 然后把新的 channel 交给 SelectorManager 组件去处理
         _manager.accept(channel);
     }
 

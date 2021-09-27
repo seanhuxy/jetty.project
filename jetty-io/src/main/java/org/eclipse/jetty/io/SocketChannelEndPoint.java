@@ -348,6 +348,9 @@ public class SocketChannelEndPoint extends AbstractEndPoint implements ManagedSe
         if (LOG.isDebugEnabled())
             LOG.debug("onSelected {}->{} r={} w={} for {}", oldInterestOps, newInterestOps, fillable, flushable, this);
 
+        // TODO: xueyangh: return a runnable when the channel is selected
+        //  the runnable will invoke _readCallback of AbstractConnection
+        //  会调用 Connection 组件的回调方法处理请求
         // return task to complete the job
         Runnable task = fillable
             ? (flushable

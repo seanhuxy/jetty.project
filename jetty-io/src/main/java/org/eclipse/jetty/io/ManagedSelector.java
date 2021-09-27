@@ -285,6 +285,7 @@ public class ManagedSelector extends ContainerLifeCycle implements Dumpable
         Selector selector = null;
         try (AutoLock l = _lock.lock())
         {
+            // TODO: xueyangh: 把 SelectorUpdate 任务放到 _updates 队列。
             _updates.offer(update);
 
             if (_selecting && !lazy)
@@ -299,6 +300,7 @@ public class ManagedSelector extends ContainerLifeCycle implements Dumpable
         {
             if (LOG.isDebugEnabled())
                 LOG.debug("Wakeup on submit {}", this);
+            // TODO: xueyangh: 唤醒 selector
             selector.wakeup();
         }
     }
@@ -379,8 +381,10 @@ public class ManagedSelector extends ContainerLifeCycle implements Dumpable
 
     private void createEndPoint(SelectableChannel channel, SelectionKey selectionKey) throws IOException
     {
+        // TODO: xueyangh: create Endpoint
         EndPoint endPoint = _selectorManager.newEndPoint(channel, this, selectionKey);
         Object context = selectionKey.attachment();
+        // TODO: xueyangh: create Connection
         Connection connection = _selectorManager.newConnection(channel, endPoint, context);
         endPoint.setConnection(connection);
         submit(selector ->
@@ -530,14 +534,19 @@ public class ManagedSelector extends ContainerLifeCycle implements Dumpable
         {
             while (true)
             {
+
+                // TODO: xueyangh: 如果 Channel 集合中有 I/O 事件就绪，
+                //  调用前面提到的 Selectable 接口获取 Runnable, 直接返回给 ExecutionStrategy 去处理
                 Runnable task = processSelected();
                 if (task != null)
                     return task;
 
+                // TODO: xueyangh: 如果没有I/O事件就绪，就干点杂活，看看有没有客户提交了更新Selector的任务，就是上面提到的SelectorUpdate任务类。
                 processUpdates();
 
                 updateKeys();
 
+                // TODO: xueyangh: 继续执行select方法，侦测I/O就绪事件
                 if (!select())
                     return null;
             }
@@ -601,6 +610,8 @@ public class ManagedSelector extends ContainerLifeCycle implements Dumpable
                 {
                     if (LOG.isDebugEnabled())
                         LOG.debug("Selector {} waiting with {} keys", selector, selector.keys().size());
+
+                    // TODO: xueyangh: select new channel
                     int selected = ManagedSelector.this.select(selector);
                     // The selector may have been recreated.
                     selector = _selector;
@@ -665,6 +676,7 @@ public class ManagedSelector extends ContainerLifeCycle implements Dumpable
                     {
                         if (attachment instanceof Selectable)
                         {
+                            // TODO: xueyangh: 返回 一个 runnable, 这个 runnable 是 SocketChannelEndPoint 定义的。
                             // Try to produce a task
                             Runnable task = ((Selectable)attachment).onSelected();
                             if (task != null)
@@ -869,7 +881,10 @@ public class ManagedSelector extends ContainerLifeCycle implements Dumpable
         {
             try
             {
+                // TODO: xueyangh: 把 Channel 注册到 Selector 上，返回一个 SelectionKey
                 key = channel.register(selector, 0, attachment);
+
+                // TODO: xueyangh: 执行 Runnable； 参见 run（）方法
                 execute(this);
             }
             catch (Throwable x)
@@ -886,6 +901,7 @@ public class ManagedSelector extends ContainerLifeCycle implements Dumpable
         {
             try
             {
+                // TODO: xueyangh: 创建一个 EndPoint 和 Connection，并跟这个 SelectionKey（Channel）绑在一起：
                 createEndPoint(channel, key);
                 _selectorManager.onAccepted(channel);
             }

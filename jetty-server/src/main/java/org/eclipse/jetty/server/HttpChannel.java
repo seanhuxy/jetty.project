@@ -407,6 +407,7 @@ public abstract class HttpChannel implements Runnable, HttpOutput.Interceptor
                         if (!_request.hasMetaData())
                             throw new IllegalStateException("state=" + _state);
 
+                        // TODO: xueyangh: handle HTTP request
                         dispatch(DispatcherType.REQUEST, () ->
                         {
                             for (HttpConfiguration.Customizer customizer : _configuration.getCustomizers())
@@ -415,6 +416,7 @@ public abstract class HttpChannel implements Runnable, HttpOutput.Interceptor
                                 if (_request.isHandled())
                                     return;
                             }
+                            // TODO: xueyangh: let the Server Handler to handle the request
                             getServer().handle(HttpChannel.this);
                         });
 
@@ -672,6 +674,7 @@ public abstract class HttpChannel implements Runnable, HttpOutput.Interceptor
             _response.reopen();
             _request.setDispatcherType(type);
             _combinedListener.onBeforeDispatch(_request);
+            // TODO: xueyangh: handle request
             dispatchable.dispatch();
         }
         catch (Throwable x)

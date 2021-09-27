@@ -132,6 +132,7 @@ public abstract class AbstractConnection implements Connection
     {
         if (LOG.isDebugEnabled())
             LOG.debug("fillInterested {}", this);
+        // TODO: xueyangh: register readCallback with Endpoint
         getEndPoint().fillInterested(_readCallback);
     }
 
@@ -316,6 +317,7 @@ public abstract class AbstractConnection implements Connection
         @Override
         public void succeeded()
         {
+            // TODO: xueyangh: on read success, call onFillable to handle the request
             onFillable();
         }
 

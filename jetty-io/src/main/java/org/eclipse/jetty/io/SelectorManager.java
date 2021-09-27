@@ -165,6 +165,8 @@ public abstract class SelectorManager extends ContainerLifeCycle implements Dump
      */
     public void connect(SelectableChannel channel, Object attachment)
     {
+        // TODO: xueyangh how to choose selector?
+        // TODO: xueyangh why we need multiple selector?
         ManagedSelector set = chooseSelector();
         set.submit(set.new Connect(channel, attachment));
     }
@@ -190,7 +192,11 @@ public abstract class SelectorManager extends ContainerLifeCycle implements Dump
      */
     public void accept(SelectableChannel channel, Object attachment)
     {
+        // TODO: xueyangh: 选择一个 ManagedSelector 处理
         ManagedSelector selector = chooseSelector();
+        // TODO: xueyangh: 提交一个新的 Acceptor 任务给 ManagedSelector
+        //      (1) 把 SelectorUpdate 任务放到 _updates 队列。
+        //      (2) 唤醒 selector
         selector.submit(selector.new Accept(channel, attachment));
     }
 

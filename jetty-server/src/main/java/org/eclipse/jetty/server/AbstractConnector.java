@@ -696,6 +696,8 @@ public abstract class AbstractConnector extends ContainerLifeCycle implements Co
         @Override
         public void run()
         {
+            // TODO: xueyangh multiple acceptors are listening on the same port or different port?
+            // can they listen on the same port?
             final Thread thread = Thread.currentThread();
             String name = thread.getName();
             _name = String.format("%s-acceptor-%d@%x-%s", name, _id, hashCode(), AbstractConnector.this.toString());
@@ -729,6 +731,7 @@ public abstract class AbstractConnector extends ContainerLifeCycle implements Co
 
                     try
                     {
+                        // TODO: xueyangh: acceptor 线程 accept incoming request
                         accept(_id);
                     }
                     catch (Throwable x)
